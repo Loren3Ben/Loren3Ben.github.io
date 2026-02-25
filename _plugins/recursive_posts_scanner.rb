@@ -1,7 +1,7 @@
 # _plugins/recursive_posts_scanner.rb
 Jekyll::Hooks.register :site, :after_init do |site|
   # 定义要扫描的根目录
-  root_dir = File.join(site.source, "_posts", "algorithm")
+  root_dir = File.join(site.source, "_posts", "**")
 
   # 递归查找所有 .md 文件
   Dir.glob(File.join(root_dir, "**", "*.md")).each do |file|

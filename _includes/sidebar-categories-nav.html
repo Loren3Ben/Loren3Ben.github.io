@@ -1,5 +1,5 @@
 
-<h3>Blog Categories</h3>
+<!-- <h3>Blog Categories</h3>
 <div id="blog-categories">
   <ul class="list-group">
     {% assign sorted_categories = site.categories | sort %}
@@ -18,5 +18,62 @@
     $("#blog-categories li").css('text-transform','capitalize')
   });
 
-</script>
+</script> -->
 
+<h3>Blog Categories</h3>
+<div id="blog-categories">
+  <ul class="list-group">
+    {% assign sorted_categories = site.categories | sort %}
+    {% for category in sorted_categories %}
+    <li class="list-group-item">
+      <a href="#{{ category[0] }}">{{ category | first }}</a>
+      <span class="badge">{{ category[1].size }}</span>
+      
+      <!-- 显示子分类 -->
+      {% assign subcategories = "" %}
+      {% for post in category[1] %}
+        {% if post.categories.size > 1 %}
+          {% assign subcat = post.categories[1] %}
+          {% unless subcategories contains subcat %}
+            {% assign subcategories = subcategories | append: "," | append: subcat %}
+          {% endunless %}
+        {% endif %}
+      {% endfor %}
+      
+      {% if subcategories != "" %}
+      <ul class="subcategory-list" style="margin-left: 20px; margin-top: 5px;">
+        {% assign subcats_array = subcategories | split: "," %}
+        {% for subcat in subcats_array %}
+          {% if subcat != "" %}
+          <li class="subcategory-item">
+            <a href="/{{ category[0] }}/{{ subcat }}/">{{ subcat }}</a>
+            <!-- 计算子分类下的文章数量 -->
+            {% assign subcat_count = 0 %}
+            {% for post in category[1] %}
+              {% if post.categories.size > 1 and post.categories[1] == subcat %}
+                {% assign subcat_count = subcat_count | plus: 1 %}
+              {% endif %}
+            {% endfor %}
+            <span class="badge">{{ subcat_count }}</span>
+          </li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<script type="text/javascript">
+  $(document).ready(function(){
+    $("#blog-categories li").css('text-transform','capitalize');
+    $(".subcategory-list").hide();
+    
+    // 点击主分类时切换子分类显示
+    $("#blog-categories > ul > li > a").click(function(e){
+      e.preventDefault();
+      $(this).parent().find(".subcategory-list").slideToggle();
+    });
+  });
+</script>

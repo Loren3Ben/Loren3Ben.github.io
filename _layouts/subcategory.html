@@ -1,0 +1,72 @@
+---
+layout: default
+---
+
+{% assign assets_base_url = site.url %}
+{% if site.cdn.jsdelivr.enabled %}
+{% assign assets_base_url = "https://fastly.jsdelivr.net/gh/" | append: site.repository | append: '@master' %}
+{% endif %}
+
+<section class="collection-head small geopattern" data-pattern-id="{{ page.subcategory | truncate: 15, ''}}">
+    <div class="container">
+        <div class="columns">
+            <div class="column two-thirds">
+                <div class="collection-title">
+                    <h1 class="collection-header">{{ page.subcategory }}</h1>
+                    <div class="collection-info">
+                        <span class="meta-info">
+                            共 {{ page.posts | size }} 篇文章
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="column one-third mobile-hidden">
+              {% include sidebar-qrcode.html %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="container content">
+    <div class="columns">
+        <div class="column two-thirds">
+            <article class="article-content markdown-body">
+                <div class="post-list">
+                    {% for post in page.posts %}
+                    <div class="post-item">
+                        <div class="post-meta">
+                            <span class="post-date">{{ post.date | date: "%Y-%m-%d" }}</span>
+                        </div>
+                        <h3 class="post-title">
+                            <a href="{{ post.url | prepend: site.baseurl }}">{{ post.title }}</a>
+                        </h3>
+                        {% if post.description %}
+                        <div class="post-description">{{ post.description }}</div>
+                        {% endif %}
+                        {% if post.keywords %}
+                        <div class="post-tags">
+                            {% for tag in post.keywords %}
+                            <span class="tag">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </article>
+            
+            <div class="share">
+                {% include sns-share.html %}
+            </div>
+            <div class="comment">
+                {% include comments.html %}
+            </div>
+        </div>
+        
+        <div class="column one-third">
+            {% include sidebar-search.html %}
+            {% include sidebar-categories-nav.html %}
+            {% include sidebar-ad.html %}
+        </div>
+    </div>
+</section>

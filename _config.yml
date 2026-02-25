@@ -133,9 +133,10 @@ plugins:
     - jemoji
 #     - jekyll-mentions
 collections:
-    fragments:
+    algorithm:
         output: true
-        permalink: /fragment/:path/
+        permalink: /algorithm/:path/
+
 
 # ---------------- #
 #      Comments    #

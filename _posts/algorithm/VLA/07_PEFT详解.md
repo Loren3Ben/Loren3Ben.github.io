@@ -1,0 +1,864 @@
+# 参数高效微调 (PEFT) 详解
+
+## 1. PEFT 概述
+
+### 1.1 为什么需要PEFT?
+
+```
+┌────────────────────────────────────────────────────┐
+│          大模型微调的挑战                           │
+└────────────────────────────────────────────────────┘
+
+全参数微调的问题:
+┌──────────────────────────────────────┐
+│  模型规模: LLaMA-13B (13B参数)       │
+│                                      │
+│  显存需求:                            │
+│    - FP32: 13B × 4 bytes = 52GB     │
+│    - 梯度: 52GB                      │
+│    - 优化器状态 (Adam): 104GB        │
+│    - 总计: ~208GB ❌                 │
+│                                      │
+│  训练时间:                            │
+│    - 1000 steps: 数小时              │
+│    - 完整训练: 数天                   │
+│                                      │
+│  其他问题:                            │
+│    - 灾难性遗忘                       │
+│    - 每个任务需要完整副本             │
+│    - 部署成本高                       │
+└──────────────────────────────────────┘
+
+PEFT的优势:
+┌──────────────────────────────────────┐
+│  以LoRA为例 (rank=16):                │
+│                                      │
+│  可训练参数:                          │
+│    - <1% 原模型参数                   │
+│    - ~50M / 13B ≈ 0.4%              │
+│                                      │
+│  显存需求:                            │
+│    - 主模型(冻结): 26GB (FP16)       │
+│    - LoRA参数: 0.2GB                 │
+│    - 总计: ~30GB ✅                   │
+│                                      │
+│  训练时间:                            │
+│    - 减少 50-70%                     │
+│                                      │
+│  其他优势:                            │
+│    - 多任务共享base模型               │
+│    - 插拔式adapter                    │
+│    - 保留原模型能力                   │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 2. LoRA (Low-Rank Adaptation)
+
+### 2.1 核心原理
+
+```
+┌────────────────────────────────────────────────────┐
+│              LoRA Mathematical Foundation           │
+└────────────────────────────────────────────────────┘
+
+预训练权重矩阵: W_0 ∈ R^(d×k)
+  例: Transformer的 Q,K,V 投影矩阵
+      d=4096, k=4096
+
+全参数微调:
+  W = W_0 + ΔW
+  ΔW ∈ R^(d×k)  ← 需要优化 d×k 个参数
+
+LoRA假设: 
+  ΔW 是低秩的!
+  ΔW ≈ BA
+  其中 B ∈ R^(d×r), A ∈ R^(r×k), r << min(d,k)
+
+参数量对比:
+┌────────────────────────────────────────┐
+│  全参数: d × k = 4096 × 4096 = 16M    │
+│  LoRA: d×r + r×k = 4096×r + r×4096   │
+│                  = 2×4096×r           │
+│                                       │
+│  r=8:  65K   (0.4%)                   │
+│  r=16: 131K  (0.8%)                   │
+│  r=64: 524K  (3.2%)                   │
+└────────────────────────────────────────┘
+```
+
+### 2.2 LoRA 架构图
+
+```
+┌────────────────────────────────────────────────────┐
+│              LoRA in Transformer Layer              │
+└────────────────────────────────────────────────────┘
+
+原始Transformer层:
+┌─────────────┐
+│   Input     │
+│   h ∈ R^d   │
+└──────┬──────┘
+       │
+       ▼
+┌──────────────────────────────────┐
+│  Linear: y = W_0·h               │
+│  W_0 ∈ R^(d×k) (冻结)            │
+└──────────────┬───────────────────┘
+               ▼
+          Output y
+
+加入LoRA后:
+┌─────────────┐
+│   Input h   │
+└──────┬──────┘
+       │
+       ├────────────────────────┐
+       │                        │
+       ▼                        ▼
+┌──────────────┐      ┌──────────────────┐
+│  W_0·h       │      │   LoRA Branch    │
+│  (冻结)      │      │                  │
+│              │      │   h → A → B → Δy │
+│              │      │   ∈R^d  ∈R^r ∈R^k│
+│              │      │                  │
+│              │      │  A ∈ R^(r×d)     │
+│              │      │  B ∈ R^(k×r)     │
+│              │      │  (可训练)         │
+└──────┬───────┘      └────────┬─────────┘
+       │                       │
+       │    ┌──────────────────┘
+       │    │  × α/r (scaling)
+       ▼    ▼
+     ┌────────┐
+     │   +    │  y = W_0·h + (α/r)·B·A·h
+     └────┬───┘
+          ▼
+      Output y
+
+详细计算流程:
+┌──────────────────────────────────────┐
+│  1. 正向传播                          │
+│     y = W_0·h + ΔW·h                 │
+│       = W_0·h + B·(A·h)              │
+│       ↑        ↑   ↑                 │
+│     原路径   低秩  低秩                │
+│                                      │
+│  2. 初始化                            │
+│     A ~ Gaussian(0, σ²)              │
+│     B = 0  ← 初始时LoRA无影响!        │
+│                                      │
+│  3. Scaling                           │
+│     实际: y = W_0·h + (α/r)·B·A·h    │
+│     α: 可调节超参数 (通常=16或r)      │
+│     r: rank                          │
+│     目的: 控制LoRA的影响强度          │
+└──────────────────────────────────────┘
+
+哪些层加LoRA?
+┌──────────────────────────────────────┐
+│  Transformer中的选择:                 │
+│                                      │
+│  ✅ Query, Key, Value 投影           │
+│     (最重要,效果最好)                 │
+│                                      │
+│  ✅ Output 投影                       │
+│                                      │
+│  ❌ LayerNorm (参数少,不值得)        │
+│                                      │
+│  ❌ FFN (可选,增加参数量)            │
+│                                      │
+│  推荐配置:                            │
+│    - 只LoRA Q,V: 最高效              │
+│    - LoRA Q,K,V,O: 平衡性能和效率    │
+│    - 全部: 最佳性能但参数多           │
+└──────────────────────────────────────┘
+```
+
+### 2.3 LoRA 代码实现
+
+```python
+import torch
+import torch.nn as nn
+import math
+
+class LoRALayer(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        rank: int = 16,
+        alpha: int = 16,
+        dropout: float = 0.0
+    ):
+        super().__init__()
+        
+        self.rank = rank
+        self.alpha = alpha
+        
+        # LoRA矩阵
+        self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
+        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
+        
+        # Dropout (可选)
+        self.dropout = nn.Dropout(p=dropout) if dropout > 0 else nn.Identity()
+        
+        # 初始化
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B)  # B初始化为0
+        
+        self.scaling = self.alpha / self.rank
+    
+    def forward(self, x):
+        # x: [B, ..., in_features]
+        # LoRA路径: x @ A^T @ B^T
+        result = (self.dropout(x) @ self.lora_A.T) @ self.lora_B.T
+        result = result * self.scaling
+        return result
+
+class LinearWithLoRA(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        rank: int = 16,
+        alpha: int = 16,
+        bias: bool = True
+    ):
+        super().__init__()
+        
+        # 原始linear层 (冻结)
+        self.linear = nn.Linear(in_features, out_features, bias=bias)
+        self.linear.weight.requires_grad = False
+        if bias:
+            self.linear.bias.requires_grad = False
+        
+        # LoRA层
+        self.lora = LoRALayer(in_features, out_features, rank, alpha)
+    
+    def forward(self, x):
+        # 原始路径 + LoRA路径
+        return self.linear(x) + self.lora(x)
+
+# 应用到Transformer
+class TransformerBlockWithLoRA(nn.Module):
+    def __init__(self, hidden_dim=768, rank=16):
+        super().__init__()
+        
+        # Multi-head attention with LoRA
+        self.q_proj = LinearWithLoRA(hidden_dim, hidden_dim, rank=rank)
+        self.k_proj = LinearWithLoRA(hidden_dim, hidden_dim, rank=rank)
+        self.v_proj = LinearWithLoRA(hidden_dim, hidden_dim, rank=rank)
+        self.o_proj = LinearWithLoRA(hidden_dim, hidden_dim, rank=rank)
+        
+        # 其他层 (不加LoRA)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 4),  # 可选加LoRA
+            nn.GELU(),
+            nn.Linear(hidden_dim * 4, hidden_dim)
+        )
+    
+    def forward(self, x):
+        # Self-attention
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        
+        attn_output = self.attention(q, k, v)
+        attn_output = self.o_proj(attn_output)
+        x = self.norm1(x + attn_output)
+        
+        # FFN
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + ffn_output)
+        
+        return x
+
+# 从预训练模型添加LoRA
+def add_lora_to_model(model, rank=16, target_modules=["q_proj", "v_proj"]):
+    """
+    将预训练模型的linear层替换为带LoRA的版本
+    """
+    for name, module in model.named_modules():
+        if any(target in name for target in target_modules):
+            if isinstance(module, nn.Linear):
+                # 获取参数
+                in_features = module.in_features
+                out_features = module.out_features
+                bias = module.bias is not None
+                
+                # 创建带LoRA的层
+                lora_layer = LinearWithLoRA(
+                    in_features, out_features, rank=rank, bias=bias
+                )
+                
+                # 复制原始权重
+                lora_layer.linear.weight.data = module.weight.data.clone()
+                if bias:
+                    lora_layer.linear.bias.data = module.bias.data.clone()
+                
+                # 替换
+                parent_name = '.'.join(name.split('.')[:-1])
+                child_name = name.split('.')[-1]
+                parent = model.get_submodule(parent_name)
+                setattr(parent, child_name, lora_layer)
+    
+    # 冻结原始参数
+    for name, param in model.named_parameters():
+        if 'lora' not in name:
+            param.requires_grad = False
+    
+    return model
+
+# 使用示例
+from transformers import AutoModelForCausalLM
+
+# 加载预训练模型
+model = AutoModelForCausalLM.from_pretrained("gpt2")
+
+# 添加LoRA
+model = add_lora_to_model(model, rank=16, target_modules=["q_proj", "v_proj"])
+
+# 检查可训练参数
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+total_params = sum(p.numel() for p in model.parameters())
+print(f"Trainable: {trainable_params / total_params * 100:.2f}%")
+```
+
+---
+
+## 3. Adapter
+
+### 3.1 Adapter 架构
+
+```
+┌────────────────────────────────────────────────────┐
+│              Adapter Architecture                   │
+└────────────────────────────────────────────────────┘
+
+思想: 在每个Transformer层插入小型"适配器"模块
+
+原始Transformer层:
+┌─────────────┐
+│   Input     │
+└──────┬──────┘
+       ▼
+┌──────────────┐
+│ Self-Attn    │
+└──────┬───────┘
+       ▼
+┌──────────────┐
+│ Add & Norm   │
+└──────┬───────┘
+       ▼
+┌──────────────┐
+│ Feed-Forward │
+└──────┬───────┘
+       ▼
+┌──────────────┐
+│ Add & Norm   │
+└──────┬───────┘
+       ▼
+    Output
+
+加入Adapter后:
+┌─────────────┐
+│   Input     │
+└──────┬──────┘
+       ▼
+┌──────────────┐
+│ Self-Attn    │
+│ (冻结)       │
+└──────┬───────┘
+       ▼
+┌──────────────┐
+│ Add & Norm   │
+└──────┬───────┘
+       ▼
+┌──────────────┐ ← 插入Adapter
+│   Adapter 1  │
+└──────┬───────┘
+       ▼
+┌──────────────┐
+│ Feed-Forward │
+│ (冻结)       │
+└──────┬───────┘
+       ▼
+┌──────────────┐
+│ Add & Norm   │
+└──────┬───────┘
+       ▼
+┌──────────────┐ ← 插入Adapter
+│   Adapter 2  │
+└──────┬───────┘
+       ▼
+    Output
+
+Adapter模块细节:
+┌──────────────────────────────────┐
+│        Single Adapter            │
+│                                  │
+│   Input x ∈ R^d                  │
+│      ↓                           │
+│   Down-project                   │
+│   W_down ∈ R^(m×d), m << d      │
+│   (例: d=768, m=64)              │
+│      ↓                           │
+│   h ∈ R^m  (bottleneck)         │
+│      ↓                           │
+│   Non-linearity (ReLU/GELU)     │
+│      ↓                           │
+│   Up-project                     │
+│   W_up ∈ R^(d×m)                │
+│      ↓                           │
+│   output ∈ R^d                  │
+│      ↓                           │
+│   Residual: x + output           │
+└──────────────────────────────────┘
+
+数学表达:
+  Adapter(x) = x + W_up·σ(W_down·x)
+               ↑               ↑
+            残差连接        非线性
+
+参数量:
+  d × m + m × d = 2dm
+  例: d=768, m=64
+      2 × 768 × 64 = 98K (每个adapter)
+      
+  对比LoRA:
+    - Adapter: 每层插入2个 (attn后, ffn后)
+    - LoRA: 在每个linear中加低秩分解
+```
+
+### 3.2 Adapter 代码实现
+
+```python
+class Adapter(nn.Module):
+    def __init__(self, hidden_dim, bottleneck_dim, activation='gelu'):
+        super().__init__()
+        
+        self.down_proj = nn.Linear(hidden_dim, bottleneck_dim)
+        self.up_proj = nn.Linear(bottleneck_dim, hidden_dim)
+        
+        if activation == 'gelu':
+            self.activation = nn.GELU()
+        elif activation == 'relu':
+            self.activation = nn.ReLU()
+        else:
+            raise ValueError(f"Unknown activation: {activation}")
+        
+        # 初始化: 让初始adapter接近恒等映射
+        nn.init.zeros_(self.down_proj.weight)
+        nn.init.zeros_(self.down_proj.bias)
+        nn.init.zeros_(self.up_proj.weight)
+        nn.init.zeros_(self.up_proj.bias)
+    
+    def forward(self, x):
+        # x: [B, seq_len, hidden_dim]
+        residual = x
+        
+        x = self.down_proj(x)        # [B, seq_len, bottleneck_dim]
+        x = self.activation(x)
+        x = self.up_proj(x)          # [B, seq_len, hidden_dim]
+        
+        return residual + x          # 残差连接
+
+class TransformerBlockWithAdapter(nn.Module):
+    def __init__(self, hidden_dim=768, bottleneck_dim=64):
+        super().__init__()
+        
+        # 原始Transformer组件 (冻结)
+        self.self_attn = nn.MultiheadAttention(hidden_dim, num_heads=12)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 4),
+            nn.GELU(),
+            nn.Linear(hidden_dim * 4, hidden_dim)
+        )
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        
+        # 冻结原始参数
+        for param in [*self.self_attn.parameters(), 
+                     *self.ffn.parameters(),
+                     *self.norm1.parameters(),
+                     *self.norm2.parameters()]:
+            param.requires_grad = False
+        
+        # Adapter模块 (可训练)
+        self.adapter_after_attn = Adapter(hidden_dim, bottleneck_dim)
+        self.adapter_after_ffn = Adapter(hidden_dim, bottleneck_dim)
+    
+    def forward(self, x):
+        # Self-attention + Adapter
+        attn_output, _ = self.self_attn(x, x, x)
+        x = self.norm1(x + attn_output)
+        x = self.adapter_after_attn(x)  # 插入Adapter
+        
+        # FFN + Adapter
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + ffn_output)
+        x = self.adapter_after_ffn(x)   # 插入Adapter
+        
+        return x
+```
+
+---
+
+## 4. LoRA vs Adapter vs 其他方法
+
+### 4.1 对比表
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│           PEFT Methods Comparison                               │
+└────────────────────────────────────────────────────────────────┘
+
+┌──────────┬─────────┬─────────┬─────────┬──────────┬─────────┐
+│ 方法     │训练参数│ 推理效率│ 性能    │ 实现难度 │灵活性   │
+├──────────┼─────────┼─────────┼─────────┼──────────┼─────────┤
+│ LoRA     │ 0.1-1% │ 高★★★★ │ 98-99% │ 中等★★★ │高★★★★ │
+│          │        │(可合并) │        │          │         │
+├──────────┼─────────┼─────────┼─────────┼──────────┼─────────┤
+│ Adapter  │ 1-3%   │ 中★★★  │ 97-98% │ 简单★★★★│中★★★  │
+│          │        │(额外层) │        │          │         │
+├──────────┼─────────┼─────────┼─────────┼──────────┼─────────┤
+│ Prefix   │ 0.01%  │ 低★★   │ 95-97% │ 难★★    │低★★   │
+│ Tuning   │        │(改序列) │        │          │         │
+├──────────┼─────────┼─────────┼─────────┼──────────┼─────────┤
+│ Prompt   │ 0.001% │ 中★★★  │ 90-95% │ 简单★★★★│低★    │
+│ Tuning   │        │(prepend)│        │          │         │
+├──────────┼─────────┼─────────┼─────────┼──────────┼─────────┤
+│ QLoRA    │ 0.1-1% │ 高★★★★ │ 98-99% │ 中等★★★ │高★★★★ │
+│          │        │(量化+   │        │          │         │
+│          │        │LoRA)    │        │          │         │
+└──────────┴─────────┴─────────┴─────────┴──────────┴─────────┘
+
+选择建议:
+┌──────────────────────────────────────────┐
+│  推荐LoRA的场景:                          │
+│    ✅ 需要最佳性能                        │
+│    ✅ 部署时需要高效推理                  │
+│    ✅ 多任务场景 (切换不同LoRA)           │
+│                                          │
+│  推荐Adapter的场景:                       │
+│    ✅ 实现简单性优先                      │
+│    ✅ 不关心推理时的额外计算              │
+│    ✅ 需要更多可训练参数                  │
+│                                          │
+│  推荐QLoRA的场景:                         │
+│    ✅ 显存极度受限                        │
+│    ✅ 需要微调超大模型 (70B+)             │
+└──────────────────────────────────────────┘
+```
+
+---
+
+## 5. QLoRA (Quantized LoRA)
+
+### 5.1 核心思想
+
+```
+┌────────────────────────────────────────────────────┐
+│               QLoRA = Quantization + LoRA           │
+└────────────────────────────────────────────────────┘
+
+问题: 即使用LoRA,大模型(65B)仍需大量显存加载base模型
+
+解决: 将base模型量化到4-bit,减少显存占用
+
+┌──────────────────────────────────────────┐
+│  显存对比 (LLaMA-65B):                    │
+│                                          │
+│  FP32: 260GB ❌                          │
+│  FP16: 130GB ❌                          │
+│  INT8: 65GB  △                          │
+│  4-bit: 32.5GB ✅                        │
+│  4-bit + LoRA: 35GB ✅                   │
+│                                          │
+│  → 单张A100 (40GB)可微调65B模型!         │
+└──────────────────────────────────────────┘
+
+QLoRA关键技术:
+┌──────────────────────────────────────────┐
+│ 1. 4-bit NormalFloat Quantization        │
+│    - 专为正态分布权重设计的量化格式       │
+│    - 信息理论最优                         │
+│                                          │
+│ 2. Double Quantization                   │
+│    - 连量化常数也量化                     │
+│    - 进一步节省显存                       │
+│                                          │
+│ 3. Paged Optimizers                      │
+│    - 自动内存分页管理                     │
+│    - 避免OOM                             │
+└──────────────────────────────────────────┘
+
+架构:
+┌─────────────┐
+│   Input     │
+└──────┬──────┘
+       │
+       ▼
+┌──────────────────────────────────┐
+│  Base Model (4-bit quantized)    │
+│                                  │
+│  W_4bit ∈ 4-bit storage          │
+│      ↓                           │
+│  dequantize to FP16 (推理时)     │
+│      ↓                           │
+│  W_fp16 ≈ W_original             │
+└──────────────┬───────────────────┘
+               │
+               ├─────────────────┐
+               │                 │
+               ▼                 ▼
+         原路径(冻结)      LoRA路径(FP16训练)
+               │                 │
+               └────────┬────────┘
+                        ▼
+                    Output
+```
+
+### 5.2 QLoRA 实现
+
+```python
+import bitsandbytes as bnb
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model
+
+# 1. 配置4-bit量化
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,                      # 4-bit加载
+    bnb_4bit_compute_dtype=torch.float16,   # 计算时用FP16
+    bnb_4bit_use_double_quant=True,         # 双量化
+    bnb_4bit_quant_type="nf4"               # NormalFloat 4-bit
+)
+
+# 2. 加载量化模型
+model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-2-13b-hf",
+    quantization_config=quantization_config,
+    device_map="auto",                      # 自动设备分配
+    trust_remote_code=True
+)
+
+# 3. 配置LoRA
+lora_config = LoraConfig(
+    r=16,                                   # rank
+    lora_alpha=32,
+    target_modules=["q_proj", "v_proj"],    # 目标模块
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM"
+)
+
+# 4. 应用LoRA
+model = get_peft_model(model, lora_config)
+
+# 5. 打印可训练参数
+model.print_trainable_parameters()
+# 输出: trainable params: 4,194,304 || all params: 13,015,864,320 || trainable%: 0.0322
+
+# 6. 训练
+from transformers import Trainer, TrainingArguments
+
+training_args = TrainingArguments(
+    output_dir="./qlora-llama-13b",
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,
+    learning_rate=2e-4,
+    max_steps=1000,
+    fp16=True,                              # 混合精度
+    optim="paged_adamw_32bit",              # Paged optimizer
+    logging_steps=10,
+    save_steps=100
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    data_collator=data_collator
+)
+
+trainer.train()
+
+# 7. 保存LoRA权重 (只有几MB!)
+model.save_pretrained("./qlora-adapter")
+```
+
+---
+
+## 6. Prefix Tuning
+
+### 6.1 核心思想
+
+```
+┌────────────────────────────────────────────────────┐
+│              Prefix Tuning                          │
+└────────────────────────────────────────────────────┘
+
+思想: 在输入序列前添加可训练的"前缀"向量
+
+架构:
+┌──────────────────────────────────────┐
+│  原始输入: [x_1, x_2, ..., x_n]      │
+│                                      │
+│  加入prefix后:                        │
+│  [P_1, P_2, ..., P_m, x_1, ..., x_n]│
+│   ↑───  可训练  ───↑  ↑── 任务输入 ──↑│
+│                                      │
+│  Transformer处理整个序列              │
+│  但只有P_i是可训练的!                 │
+└──────────────────────────────────────┘
+
+详细结构:
+┌──────────────────────────────────────┐
+│  每一层都有prefix:                    │
+│                                      │
+│  Layer 1:                            │
+│    [P^1_1, ..., P^1_m] + [x_1,...,x_n]│
+│                                      │
+│  Layer 2:                            │
+│    [P^2_1, ..., P^2_m] + [h^2_1,...] │
+│                                      │
+│  ...                                 │
+│                                      │
+│  总参数: num_layers × m × hidden_dim │
+│  例: 12 layers × 20 × 768 = 184K     │
+└──────────────────────────────────────┘
+
+与Prompt Tuning区别:
+┌──────────────────────────────────────┐
+│  Prompt Tuning:                      │
+│    只在输入层加prefix                 │
+│    [P_1, ..., P_m] → Embedding       │
+│                                      │
+│  Prefix Tuning:                      │
+│    每层都加prefix                     │
+│    更强大但参数更多                   │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 7. 面试重点问题
+
+**Q1: LoRA为什么有效?理论基础是什么?**  
+A: 
+- 内在维度假设: 模型适应新任务时,权重更新是低秩的
+- 实验证明: rank=8已足够,说明适应任务不需要高维空间
+- 过参数化: 预训练模型已学到丰富表示,微调只需小调整
+
+**Q2: LoRA的rank如何选择?**  
+A:
+- 小任务: r=4-8 足够
+- 大任务: r=16-64
+- 经验: 从小开始,逐步增大直到性能饱和
+- 建议: 先用r=16测试,再调整
+
+**Q3: LoRA如何部署?**  
+A: 两种方式:
+1. 合并: W_new = W_0 + BA (离线合并,推理无额外开销)
+2. 插拔: 运行时动态加载不同LoRA (多任务场景)
+
+**Q4: Adapter vs LoRA,哪个更好?**  
+A:
+- 性能: LoRA略优 (98-99% vs 97-98%)
+- 推理: LoRA可合并,Adapter有额外计算
+- 实现: Adapter更简单直观
+- 推荐: 优先LoRA,除非实现难度是瓶颈
+
+**Q5: QLoRA会损失精度吗?**  
+A:
+- 理论上会,但实验表明损失<1%
+- 4-bit NormalFloat针对神经网络权重优化
+- 关键: 只量化base model,LoRA仍用FP16训练
+
+**Q6: 如何在机器人应用中使用PEFT?**  
+A:
+- 预训练VLM (如LLaVA) → 冻结
+- 添加LoRA/Adapter → 微调机器人任务
+- 好处: 保留VLM的通用能力,只适配特定操作
+
+---
+
+## 8. 实战建议
+
+### 8.1 选择PEFT方法的决策树
+
+```
+┌──────────────────────────────────────┐
+│  显存充足 (>80GB)?                    │
+│    YES → 全参数微调                   │
+│    NO  ↓                             │
+│                                      │
+│  模型超大 (>30B)?                     │
+│    YES → QLoRA (4-bit + LoRA)        │
+│    NO  ↓                             │
+│                                      │
+│  需要多任务切换?                      │
+│    YES → LoRA (可插拔)               │
+│    NO  ↓                             │
+│                                      │
+│  追求极致性能?                        │
+│    YES → LoRA                        │
+│    NO  → Adapter (更简单)            │
+└──────────────────────────────────────┘
+```
+
+### 8.2 超参数设置建议
+
+```python
+# LoRA推荐配置
+lora_config = {
+    "rank": 16,                    # 通用起点
+    "alpha": 32,                   # 通常=2×rank
+    "target_modules": [
+        "q_proj", "k_proj",        # attention
+        "v_proj", "o_proj"
+    ],
+    "lora_dropout": 0.05,          # 轻微正则化
+    "bias": "none"                 # 不训练bias
+}
+
+# Adapter推荐配置
+adapter_config = {
+    "bottleneck_dim": 64,          # 通常是hidden_dim的1/12
+    "activation": "gelu",
+    "num_adapters": 2              # 每层2个 (attn后, ffn后)
+}
+
+# 训练配置
+training_config = {
+    "learning_rate": 2e-4,         # LoRA可用更大学习率
+    "batch_size": 8,
+    "gradient_accumulation": 4,
+    "warmup_steps": 100,
+    "max_steps": 1000-5000         # 根据数据量
+}
+```
+
+---
+
+## 9. 参考资源
+
+### 论文
+- LoRA: "LoRA: Low-Rank Adaptation of Large Language Models"
+- QLoRA: "QLoRA: Efficient Finetuning of Quantized LLMs"
+- Adapter: "Parameter-Efficient Transfer Learning for NLP"
+
+### 代码库
+- Hugging Face PEFT: https://github.com/huggingface/peft
+- bitsandbytes: 量化库
+
+---
+
+*文档版本: v1.0*  
+*最后更新: 2025-11-07*
+

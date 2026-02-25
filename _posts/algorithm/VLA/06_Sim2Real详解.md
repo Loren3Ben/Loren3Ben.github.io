@@ -1,0 +1,737 @@
+# Sim2Real 技术详解
+
+## 1. Sim2Real 问题定义
+
+### 1.1 核心挑战
+
+**Sim2Real Gap**: 仿真环境训练的模型在真实环境中性能下降
+
+```
+┌────────────────────────────────────────────────────┐
+│            The Reality Gap                          │
+└────────────────────────────────────────────────────┘
+
+仿真环境特点:
+┌──────────────────────────────┐
+│  ✅ 安全 (无实物损坏风险)     │
+│  ✅ 快速 (可并行模拟)         │
+│  ✅ 便宜 (无硬件成本)         │
+│  ✅ 可控 (精确状态观测)       │
+│  ❌ 不真实 (物理不准确)       │
+└──────────────────────────────┘
+
+真实环境特点:
+┌──────────────────────────────┐
+│  ✅ 真实物理                  │
+│  ❌ 危险 (可能损坏设备)       │
+│  ❌ 慢 (实时执行)             │
+│  ❌ 贵 (硬件+维护)            │
+│  ❌ 噪声 (传感器不完美)       │
+└──────────────────────────────┘
+
+差异来源:
+┌────────────────────────────────────────┐
+│  1. 视觉差异                           │
+│     - 光照: 仿真单调 vs 真实多变       │
+│     - 纹理: 仿真简化 vs 真实复杂       │
+│     - 颜色: 色彩空间不匹配             │
+│                                        │
+│  2. 物理差异                           │
+│     - 摩擦力: 仿真简化 vs 真实复杂     │
+│     - 接触: 碰撞检测不完美             │
+│     - 动力学: 仿真器近似误差           │
+│                                        │
+│  3. 传感器差异                         │
+│     - 噪声: 仿真无噪声 vs 真实有噪声   │
+│     - 延迟: 仿真即时 vs 真实有延迟     │
+│     - 精度: 理想 vs 有限分辨率         │
+└────────────────────────────────────────┘
+```
+
+---
+
+## 2. 域随机化 (Domain Randomization)
+
+### 2.1 基本原理
+
+**核心思想**: 在仿真中引入大量随机性,让模型学会鲁棒特征
+
+```
+┌────────────────────────────────────────────────────┐
+│           Domain Randomization Pipeline             │
+└────────────────────────────────────────────────────┘
+
+原始仿真场景:
+┌──────────────────────────┐
+│  固定光照                 │
+│  固定纹理                 │
+│  固定物体位置             │
+│  固定动力学参数           │
+└──────────────────────────┘
+         ↓
+  添加随机化
+         ↓
+随机化仿真场景:
+┌──────────────────────────────────────────┐
+│  每个episode随机:                         │
+│                                          │
+│  1. 视觉随机化                            │
+│     ├─ 光照方向: uniform(-π, π)          │
+│     ├─ 光照强度: uniform(0.5, 2.0)       │
+│     ├─ 相机位置: uniform(±0.1m)          │
+│     ├─ 物体颜色: RGB ∈ [0, 255]³         │
+│     ├─ 物体纹理: 随机纹理库采样           │
+│     └─ 背景: 随机图像                     │
+│                                          │
+│  2. 物理随机化                            │
+│     ├─ 质量: uniform(0.8, 1.2) × m_nom   │
+│     ├─ 摩擦系数: uniform(0.5, 1.5)       │
+│     ├─ 接触刚度: log-uniform(1e3, 1e5)   │
+│     ├─ 阻尼: uniform(0.8, 1.2) × d_nom   │
+│     └─ 重力: uniform(9.7, 9.9) m/s²      │
+│                                          │
+│  3. 传感器随机化                          │
+│     ├─ 噪声: Gaussian(0, σ²)             │
+│     ├─ 延迟: uniform(0, 50ms)            │
+│     ├─ 丢失: Dropout(p=0.05)             │
+│     └─ 漂移: 随机偏置                     │
+└──────────────────────────────────────────┘
+         ↓
+   训练RL策略
+         ↓
+┌──────────────────────────────────────────┐
+│  学到鲁棒策略:                            │
+│  不依赖特定光照/颜色/物理参数             │
+│                                          │
+│  理论: 如果随机化足够广,                  │
+│       真实世界只是随机空间的一个采样       │
+└──────────────────────────────────────────┘
+```
+
+### 2.2 实现示例
+
+```python
+import mujoco
+import numpy as np
+
+class DomainRandomization:
+    def __init__(self, env):
+        self.env = env
+        
+    def randomize_visual(self):
+        """视觉随机化"""
+        # 随机光照
+        light_pos = np.random.uniform(-5, 5, size=3)
+        light_intensity = np.random.uniform(0.5, 2.0)
+        self.env.set_light(pos=light_pos, intensity=light_intensity)
+        
+        # 随机物体颜色
+        for obj_id in range(self.env.num_objects):
+            color = np.random.uniform(0, 1, size=4)  # RGBA
+            self.env.set_object_color(obj_id, color)
+        
+        # 随机纹理
+        texture_id = np.random.choice(self.env.texture_library)
+        self.env.set_texture(texture_id)
+        
+        # 随机相机位置
+        cam_noise = np.random.uniform(-0.1, 0.1, size=3)
+        self.env.move_camera(cam_noise)
+    
+    def randomize_physics(self):
+        """物理随机化"""
+        # 随机质量 (±20%)
+        for body_id in range(self.env.num_bodies):
+            mass_scale = np.random.uniform(0.8, 1.2)
+            original_mass = self.env.get_body_mass(body_id)
+            self.env.set_body_mass(body_id, original_mass * mass_scale)
+        
+        # 随机摩擦系数
+        for geom_id in range(self.env.num_geoms):
+            friction = np.random.uniform(0.5, 1.5, size=3)  # [滑动, 扭转, 滚动]
+            self.env.set_friction(geom_id, friction)
+        
+        # 随机关节阻尼
+        for joint_id in range(self.env.num_joints):
+            damping_scale = np.random.uniform(0.8, 1.2)
+            original_damping = self.env.get_joint_damping(joint_id)
+            self.env.set_joint_damping(joint_id, original_damping * damping_scale)
+    
+    def randomize_sensor(self, observation):
+        """传感器随机化"""
+        # 高斯噪声
+        noise = np.random.normal(0, 0.01, size=observation.shape)
+        observation = observation + noise
+        
+        # 随机延迟 (通过历史buffer实现)
+        delay_steps = np.random.randint(0, 3)  # 0-2步延迟
+        # 实际需要维护历史observation buffer
+        
+        # 随机dropout (某些传感器失效)
+        dropout_mask = np.random.binomial(1, 0.95, size=observation.shape)
+        observation = observation * dropout_mask
+        
+        return observation
+    
+    def reset(self):
+        """每个episode重置时调用"""
+        self.randomize_visual()
+        self.randomize_physics()
+        return self.env.reset()
+
+# 使用示例
+env = GymEnvironment()
+dr_env = DomainRandomization(env)
+
+for episode in range(1000):
+    obs = dr_env.reset()  # 每次reset都随机化
+    done = False
+    
+    while not done:
+        action = policy(obs)
+        obs, reward, done, info = env.step(action)
+        obs = dr_env.randomize_sensor(obs)  # 传感器噪声
+```
+
+---
+
+### 2.3 自动化域随机化 (ADR)
+
+```
+┌────────────────────────────────────────────────────┐
+│    Automatic Domain Randomization (ADR)             │
+└────────────────────────────────────────────────────┘
+
+问题: 手动设置随机化范围困难
+  - 太窄: 泛化不足
+  - 太宽: 训练不收敛
+
+解决: 自适应调整随机化范围
+
+算法流程:
+┌──────────────────────────────────────────────┐
+│  初始化:                                      │
+│    每个参数p的随机化范围: [p_min, p_max]     │
+│    初始范围较窄: [p_nominal±10%]             │
+│                                              │
+│  训练循环:                                    │
+│    1. 用当前范围训练N个episode               │
+│    2. 评估性能:                              │
+│       if 成功率 > threshold_high (e.g., 95%) │
+│           扩大范围: Δ = Δ × 1.1              │
+│       elif 成功率 < threshold_low (e.g., 70%)│
+│           缩小范围: Δ = Δ × 0.9              │
+│    3. 更新随机化范围                         │
+│    4. 重复                                   │
+│                                              │
+│  效果: 自动找到最优随机化程度                 │
+└──────────────────────────────────────────────┘
+
+OpenAI的机器手魔方案例:
+┌──────────────────────────────────────────────┐
+│  ADR应用:                                     │
+│    - 物体大小: 逐渐增大随机范围               │
+│    - 摩擦力: 从窄到宽                         │
+│    - 重力: 甚至随机到月球重力!                │
+│                                              │
+│  结果: 仿真训练的策略                         │
+│       → 直接在真实机器手上成功                │
+│       → 无需真实数据微调!                     │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## 3. 域适应 (Domain Adaptation)
+
+### 3.1 GAN-based Sim2Real
+
+```
+┌────────────────────────────────────────────────────┐
+│       CycleGAN for Sim2Real Transfer                │
+└────────────────────────────────────────────────────┘
+
+思路: 将仿真图像转换为真实风格
+
+架构:
+仿真图像 (Sim)         真实图像 (Real)
+     ↓                      ↓
+┌─────────────┐      ┌─────────────┐
+│ Generator   │      │ Generator   │
+│  G_S→R      │      │  G_R→S      │
+│             │      │             │
+│ Sim → Real  │      │ Real → Sim  │
+└──────┬──────┘      └──────┬──────┘
+       │                    │
+       ▼                    ▼
+  生成的"真实"图像      生成的"仿真"图像
+       │                    │
+       ├────────────────────┤
+       │                    │
+       ▼                    ▼
+┌─────────────┐      ┌─────────────┐
+│Discriminator│      │Discriminator│
+│   D_Real    │      │   D_Sim     │
+│             │      │             │
+│ 判断是否真实│      │ 判断是否仿真│
+└─────────────┘      └─────────────┘
+
+损失函数:
+┌──────────────────────────────────────────┐
+│ 1. 对抗损失 (Adversarial Loss)           │
+│    L_adv = E[log D_R(real)] +            │
+│            E[log(1 - D_R(G_S→R(sim)))]   │
+│                                          │
+│ 2. 循环一致性损失 (Cycle Loss)           │
+│    L_cyc = ||G_R→S(G_S→R(sim)) - sim||  │
+│          + ||G_S→R(G_R→S(real)) - real|| │
+│    ↑ 保证转换后能转回来                   │
+│                                          │
+│ 3. 身份损失 (Identity Loss)              │
+│    L_id = ||G_S→R(real) - real||        │
+│    ↑ 真实图像通过生成器应保持不变          │
+└──────────────────────────────────────────┘
+
+训练流程:
+┌──────────────────────────────────────────┐
+│  数据:                                    │
+│    - 仿真图像 (大量, 有标签)              │
+│    - 真实图像 (少量, 无标签)              │
+│                                          │
+│  Step 1: 训练CycleGAN                    │
+│    学习 Sim ↔ Real 风格转换              │
+│                                          │
+│  Step 2: 生成"真实风格"的仿真数据         │
+│    sim_images → G_S→R → realistic_images │
+│                                          │
+│  Step 3: 用转换后的图像训练策略           │
+│    policy ← train(realistic_images)      │
+│                                          │
+│  Step 4: 部署到真实环境                   │
+└──────────────────────────────────────────┘
+
+效果:
+  仿真图像 (卡通风格)
+       ↓ CycleGAN
+  "真实化"图像 (逼真)
+       ↓ 训练策略
+  在真实环境中work!
+```
+
+### 3.2 特征对齐方法
+
+```
+┌────────────────────────────────────────────────────┐
+│       Feature Alignment for Sim2Real                │
+└────────────────────────────────────────────────────┘
+
+思路: 对齐仿真和真实环境的特征分布
+
+方法1: Maximum Mean Discrepancy (MMD)
+┌──────────────────────────────────────────┐
+│  目标: 最小化源域和目标域的特征距离       │
+│                                          │
+│  MMD(f_sim, f_real) =                    │
+│    ||E[φ(f_sim)] - E[φ(f_real)]||²      │
+│         ↑                                │
+│    核空间中的均值差异                     │
+│                                          │
+│  训练loss:                               │
+│    L = L_task + λ·MMD(f_sim, f_real)    │
+└──────────────────────────────────────────┘
+
+方法2: CORAL (Correlation Alignment)
+┌──────────────────────────────────────────┐
+│  对齐协方差矩阵                           │
+│                                          │
+│  L_CORAL = ||Cov(f_sim) - Cov(f_real)||²│
+│                                          │
+│  效果: 特征的二阶统计量对齐               │
+└──────────────────────────────────────────┘
+
+架构示例:
+┌─────────────┐       ┌─────────────┐
+│  Sim Image  │       │ Real Image  │
+└──────┬──────┘       └──────┬──────┘
+       │                     │
+       ▼                     ▼
+┌──────────────────────────────────┐
+│    Shared Feature Extractor      │
+│    (CNN, frozen底层)             │
+└──────┬───────────────────┬───────┘
+       │                   │
+       ▼                   ▼
+   f_sim(特征)        f_real(特征)
+       │                   │
+       └─────────┬─────────┘
+                 ▼
+        计算MMD/CORAL损失
+                 ↓
+        反向传播,对齐特征
+
+优点: 无需配对数据,只需两域的无标签数据
+```
+
+---
+
+## 4. 真实数据微调 (Real-World Fine-tuning)
+
+### 4.1 在线适应
+
+```
+┌────────────────────────────────────────────────────┐
+│        Online Adaptation Strategy                   │
+└────────────────────────────────────────────────────┘
+
+流程:
+┌──────────────────────────────────────────┐
+│  Phase 1: 仿真预训练 (大量数据)          │
+│    π_sim ← RL_train(sim_env, 1M steps)  │
+│                                          │
+│  Phase 2: 真实环境微调 (少量数据)        │
+│    π_real ← fine_tune(π_sim, real_env,  │
+│                       10K steps)         │
+│                                          │
+│  Phase 3: 持续学习 (部署后)              │
+│    while deployed:                       │
+│        收集真实数据                       │
+│        if 性能下降:                       │
+│            快速微调                       │
+└──────────────────────────────────────────┘
+
+策略:
+┌──────────────────────────────────────────┐
+│ 1. 冻结部分网络                           │
+│    - 冻结底层特征提取器                   │
+│    - 只微调顶层决策层                     │
+│    → 防止灾难性遗忘                       │
+│                                          │
+│ 2. 小学习率                               │
+│    α_finetune = 0.1 × α_pretrain         │
+│    → 保留仿真学到的知识                   │
+│                                          │
+│ 3. 混合训练                               │
+│    batch = {80% sim data, 20% real data}│
+│    → 平衡仿真和真实                       │
+│                                          │
+│ 4. 早停 (Early Stopping)                 │
+│    在验证集上监控,防止过拟合              │
+└──────────────────────────────────────────┘
+```
+
+**代码实现:**
+```python
+class Sim2RealTransfer:
+    def __init__(self, policy_network):
+        self.policy = policy_network
+        
+    def pretrain_in_sim(self, sim_env, num_steps=1e6):
+        """阶段1: 仿真预训练"""
+        print("Phase 1: Pretraining in simulation...")
+        
+        agent = PPOAgent(self.policy)
+        agent.train(sim_env, num_steps=num_steps)
+        
+        # 保存预训练模型
+        torch.save(self.policy.state_dict(), "pretrained_sim.pth")
+    
+    def finetune_on_real(self, real_env, num_steps=1e4):
+        """阶段2: 真实环境微调"""
+        print("Phase 2: Fine-tuning on real robot...")
+        
+        # 加载预训练权重
+        self.policy.load_state_dict(torch.load("pretrained_sim.pth"))
+        
+        # 冻结底层
+        for name, param in self.policy.named_parameters():
+            if 'layer1' in name or 'layer2' in name:
+                param.requires_grad = False
+        
+        # 小学习率
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.policy.parameters()),
+            lr=1e-5  # 比预训练小10倍
+        )
+        
+        # 微调
+        agent = PPOAgent(self.policy, optimizer=optimizer)
+        agent.train(real_env, num_steps=num_steps)
+        
+        torch.save(self.policy.state_dict(), "finetuned_real.pth")
+    
+    def online_adaptation(self, real_env, buffer_size=1000):
+        """阶段3: 在线适应"""
+        print("Phase 3: Online adaptation...")
+        
+        replay_buffer = []
+        performance_window = []
+        
+        while True:
+            # 执行任务
+            episode_data, success = self.policy.rollout(real_env)
+            replay_buffer.extend(episode_data)
+            performance_window.append(success)
+            
+            # 检测性能下降
+            if len(performance_window) >= 10:
+                recent_performance = np.mean(performance_window[-10:])
+                
+                if recent_performance < 0.7:  # 成功率<70%
+                    print("Performance drop detected. Re-training...")
+                    
+                    # 从buffer采样微调
+                    for _ in range(100):  # 快速微调
+                        batch = random.sample(replay_buffer, 32)
+                        self.policy.update(batch)
+                    
+                    performance_window.clear()
+            
+            # 限制buffer大小
+            if len(replay_buffer) > buffer_size:
+                replay_buffer = replay_buffer[-buffer_size:]
+```
+
+---
+
+## 5. 系统辨识 (System Identification)
+
+### 5.1 参数校准
+
+```
+┌────────────────────────────────────────────────────┐
+│       System Identification for Sim2Real            │
+└────────────────────────────────────────────────────┘
+
+目标: 让仿真参数匹配真实系统
+
+步骤:
+┌──────────────────────────────────────────┐
+│  1. 真实数据收集                          │
+│     在真实机器人上执行已知动作:           │
+│     - 正弦波轨迹                          │
+│     - 阶跃输入                            │
+│     - 随机激励                            │
+│     记录: (action, next_state)            │
+│                                          │
+│  2. 仿真中重现                            │
+│     在仿真中执行相同动作:                 │
+│     预测: (action → next_state_sim)      │
+│                                          │
+│  3. 优化仿真参数                          │
+│     最小化:                               │
+│     L = Σ||next_state_real -             │
+│           next_state_sim(θ)||²           │
+│     θ: 仿真参数 (质量, 摩擦, 刚度等)      │
+│                                          │
+│  4. 迭代优化                              │
+│     使用优化算法 (如CMA-ES)调整θ          │
+└──────────────────────────────────────────┘
+
+可调参数示例:
+┌──────────────────────────────────────────┐
+│  机械参数:                                │
+│    - 连杆质量: m_i                        │
+│    - 转动惯量: I_i                        │
+│    - 关节摩擦: f_i                        │
+│    - 齿轮比: g_i                          │
+│                                          │
+│  接触参数:                                │
+│    - 接触刚度: k_contact                  │
+│    - 接触阻尼: d_contact                  │
+│    - 摩擦系数: μ                          │
+│                                          │
+│  传感器参数:                              │
+│    - 噪声标准差: σ_sensor                 │
+│    - 偏置: b_sensor                       │
+│    - 延迟: τ_delay                        │
+└──────────────────────────────────────────┘
+```
+
+**代码实现:**
+```python
+import scipy.optimize
+
+class SystemIdentification:
+    def __init__(self, sim_env, real_robot):
+        self.sim = sim_env
+        self.robot = real_robot
+        
+    def collect_real_data(self, num_trajectories=50):
+        """在真实机器人上收集数据"""
+        real_data = []
+        
+        for _ in range(num_trajectories):
+            # 生成测试轨迹 (正弦波)
+            t = np.linspace(0, 2*np.pi, 100)
+            actions = np.sin(t)
+            
+            state = self.robot.reset()
+            trajectory = []
+            
+            for action in actions:
+                next_state = self.robot.step(action)
+                trajectory.append((state, action, next_state))
+                state = next_state
+            
+            real_data.append(trajectory)
+        
+        return real_data
+    
+    def sim_rollout(self, sim_params, trajectory):
+        """在仿真中重现轨迹"""
+        self.sim.set_parameters(sim_params)
+        
+        sim_states = []
+        state = self.sim.reset()
+        
+        for (_, action, _) in trajectory:
+            state = self.sim.step(action)
+            sim_states.append(state)
+        
+        return sim_states
+    
+    def objective(self, sim_params, real_data):
+        """目标函数: 最小化仿真和真实的差异"""
+        total_error = 0
+        
+        for trajectory in real_data:
+            sim_states = self.sim_rollout(sim_params, trajectory)
+            real_states = [ns for (_, _, ns) in trajectory]
+            
+            # L2误差
+            error = np.sum((np.array(sim_states) - np.array(real_states))**2)
+            total_error += error
+        
+        return total_error / len(real_data)
+    
+    def optimize(self, initial_params, real_data):
+        """优化仿真参数"""
+        print("Starting system identification...")
+        
+        # 参数边界
+        bounds = [
+            (0.8, 1.2),  # 质量缩放
+            (0.5, 1.5),  # 摩擦系数
+            (0.8, 1.2),  # 阻尼
+            # ... 更多参数
+        ]
+        
+        result = scipy.optimize.minimize(
+            fun=lambda p: self.objective(p, real_data),
+            x0=initial_params,
+            method='L-BFGS-B',
+            bounds=bounds,
+            options={'maxiter': 100}
+        )
+        
+        optimal_params = result.x
+        print(f"Optimal parameters: {optimal_params}")
+        print(f"Final error: {result.fun}")
+        
+        return optimal_params
+
+# 使用
+sysid = SystemIdentification(sim_env, real_robot)
+real_data = sysid.collect_real_data(num_trajectories=50)
+optimal_params = sysid.optimize(initial_params=[1.0, 1.0, 1.0], real_data=real_data)
+
+# 应用到仿真环境
+sim_env.set_parameters(optimal_params)
+```
+
+---
+
+## 6. Sim2Real 最佳实践
+
+### 6.1 综合策略
+
+```
+┌────────────────────────────────────────────────────┐
+│         Sim2Real Best Practices                     │
+└────────────────────────────────────────────────────┘
+
+推荐流程:
+┌──────────────────────────────────────────┐
+│  Step 1: 系统辨识                         │
+│    校准仿真参数,尽可能匹配真实            │
+│    → 减少域差异的源头                     │
+│                                          │
+│  Step 2: 域随机化训练                     │
+│    在校准后的仿真上应用域随机化           │
+│    → 学习鲁棒策略                         │
+│                                          │
+│  Step 3: 域适应 (可选)                    │
+│    如果有真实图像,使用GAN/MMD             │
+│    → 对齐视觉域                           │
+│                                          │
+│  Step 4: 真实数据微调                     │
+│    在真实机器人上收集少量数据微调         │
+│    → 最后的精调                           │
+│                                          │
+│  Step 5: 在线监控与适应                   │
+│    部署后持续监控,检测分布漂移            │
+│    → 长期稳定性                           │
+└──────────────────────────────────────────┘
+
+成功案例的共同点:
+  ✅ 高质量物理仿真 (MuJoCo, Isaac Sim)
+  ✅ 大量域随机化
+  ✅ 鲁棒的观测空间 (深度 > RGB)
+  ✅ 渐进式部署 (先简单场景)
+  ✅ 安全机制 (紧急停止)
+```
+
+---
+
+## 7. 面试重点问题
+
+**Q1: 域随机化的范围如何确定?**  
+A: 
+- 保守估计物理参数的可能范围
+- 使用ADR自动调整
+- 真实测量建立边界 (系统辨识)
+
+**Q2: Sim2Real失败的常见原因?**  
+A:
+- 域随机化不足 (特别是接触物理)
+- 传感器噪声建模不准确
+- 动作空间不匹配 (延迟问题)
+- 安全约束在仿真中未考虑
+
+**Q3: 如何评估Sim2Real的成功?**  
+A:
+- Zero-shot成功率 (无微调)
+- 数据效率 (需要多少真实数据微调)
+- 鲁棒性 (对环境变化的适应)
+
+**Q4: 视觉Sim2Real vs 状态Sim2Real哪个更难?**  
+A: 视觉更难,因为视觉域差异大。建议:
+- 早期用状态 (关节角度)
+- 逐步过渡到视觉
+- 或使用深度图 (域差异小于RGB)
+
+**Q5: 如何处理仿真中无法建模的现象?**  
+A:
+- 残差学习 (RL学习修正项)
+- 在线适应
+- 更换更准确的仿真器
+
+---
+
+## 8. 参考资源
+
+### 论文
+- "Sim-to-Real Transfer with Domain Randomization" (OpenAI)
+- "Learning Dexterous In-Hand Manipulation" (OpenAI Rubik's Cube)
+- "CycleGAN for Sim2Real Transfer"
+
+### 仿真平台
+- MuJoCo: 高精度物理引擎
+- Isaac Sim: NVIDIA的机器人仿真
+- PyBullet: 开源替代
+
+---
+
+*文档版本: v1.0*  
+*最后更新: 2025-11-07*
+

@@ -6,12 +6,16 @@ layout: default
 {% if site.cdn.jsdelivr.enabled %}
 {% assign assets_base_url = "https://fastly.jsdelivr.net/gh/" | append: site.repository | append: '@master' %}
 {% endif %}
+
 <section class="collection-head small geopattern" data-pattern-id="{{ page.title | truncate: 15, ''}}">
     <div class="container">
         <div class="columns">
             <div class="column two-thirds">
                 <div class="collection-title">
                     <h1 class="collection-header">{{ page.title }}</h1>
+                    <div class="collection-info">
+                        <span class="meta-info">共 {{ site.categories.size }} 个分类</span>
+                    </div>
                 </div>
             </div>
             <div class="column one-third mobile-hidden">
@@ -20,13 +24,131 @@ layout: default
         </div>
     </div>
 </section>
-<!-- / .banner -->
+
 <section class="container content">
     <div class="columns">
-        <div class="column two-thirds" >
+        <div class="column two-thirds">
             <article class="article-content markdown-body">
-                {{ content }}
+                <!-- 分类概览 -->
+                <div class="category-overview">
+                    <h2>分类概览</h2>
+                    <div class="category-grid">
+                        {% assign sorted_categories = site.categories | sort %}
+                        {% for category in sorted_categories %}
+                        <div class="category-card">
+                            <h3 class="category-name">
+                                <a href="#{{ category[0] }}">{{ category[0] }}</a>
+                                <span class="category-count">{{ category[1].size }}</span>
+                            </h3>
+                            
+                            <!-- 显示子分类 -->
+                            {% assign subcategories = "" %}
+                            {% for post in category[1] %}
+                                {% if post.categories.size > 1 %}
+                                    {% assign subcat = post.categories[1] %}
+                                    {% unless subcategories contains subcat %}
+                                        {% assign subcategories = subcategories | append: "," | append: subcat %}
+                                    {% endunless %}
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if subcategories != "" %}
+                            <div class="subcategory-preview">
+                                {% assign subcats_array = subcategories | split: "," %}
+                                {% for subcat in subcats_array %}
+                                    {% if subcat != "" %}
+                                    <span class="subcategory-tag">
+                                        <a href="/{{ category[0] }}/{{ subcat }}/">{{ subcat }}</a>
+                                    </span>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            
+                            <!-- 最新文章预览 -->
+                            <div class="recent-posts">
+                                {% assign recent_posts = category[1] | sort: 'date' | reverse | slice: 0, 3 %}
+                                {% for post in recent_posts %}
+                                <div class="post-preview">
+                                    <span class="post-date">{{ post.date | date: "%m-%d" }}</span>
+                                    <a href="{{ site.url }}{{ post.url }}" class="post-link">{{ post.title }}</a>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <!-- 详细分类列表 -->
+                <div class="category-details">
+                    <h2>详细分类</h2>
+                    {% for category in sorted_categories %}
+                    <div class="category-section" id="{{ category[0] }}">
+                        <h3 class="category-header">
+                            {{ category[0] }}
+                            <span class="category-stats">{{ category[1].size }} 篇文章</span>
+                        </h3>
+                        
+                        <!-- 子分类详情 -->
+                        {% assign subcategory_map = "" %}
+                        {% for post in category[1] %}
+                            {% if post.categories.size > 1 %}
+                                {% assign subcat = post.categories[1] %}
+                                {% assign subcat_key = subcat | append: "|count:" %}
+                                {% unless subcategory_map contains subcat_key %}
+                                    {% assign subcategory_map = subcategory_map | append: subcat_key | append: "1|" %}
+                                {% else %}
+                                    {% assign subcategory_map = subcategory_map | replace: subcat_key, subcat_key | append: "1|" %}
+                                {% endunless %}
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if subcategory_map != "" %}
+                        <div class="subcategory-details">
+                            {% assign subcats_with_counts = subcategory_map | split: "|" %}
+                            {% for subcat_info in subcats_with_counts %}
+                                {% if subcat_info != "" and subcat_info contains "|count:" %}
+                                    {% assign parts = subcat_info | split: "|count:" %}
+                                    {% assign subcat_name = parts[0] %}
+                                    {% assign count = parts[1] | size %}
+                                    <div class="subcategory-item">
+                                        <h4 class="subcategory-title">
+                                            <a href="/{{ category[0] }}/{{ subcat_name }}/">{{ subcat_name }}</a>
+                                            <span class="subcategory-count">{{ count }} 篇</span>
+                                        </h4>
+                                        <div class="subcategory-posts">
+                                            {% for post in category[1] %}
+                                                {% if post.categories.size > 1 and post.categories[1] == subcat_name %}
+                                                <div class="subcategory-post">
+                                                    <span class="post-date">{{ post.date | date: "%Y-%m-%d" }}</span>
+                                                    <a href="{{ site.url }}{{ post.url }}">{{ post.title }}</a>
+                                                </div>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
+                        <!-- 无子分类的文章 -->
+                        <div class="direct-posts">
+                            {% for post in category[1] %}
+                                {% unless post.categories.size > 1 %}
+                                <div class="post-item">
+                                    <span class="post-date">{{ post.date | date: "%Y-%m-%d" }}</span>
+                                    <a href="{{ site.url }}{{ post.url }}">{{ post.title }}</a>
+                                </div>
+                                {% endunless %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
             </article>
+            
             <div class="share">
                 {% include sns-share.html %}
             </div>
@@ -34,6 +156,7 @@ layout: default
                 {% include comments.html %}
             </div>
         </div>
+        
         <div class="column one-third">
             {% include sidebar-search.html %}
             {% include sidebar-categories-nav.html %}
@@ -41,4 +164,3 @@ layout: default
         </div>
     </div>
 </section>
-<!-- /section.content -->

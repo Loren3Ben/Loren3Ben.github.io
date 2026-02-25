@@ -87,15 +87,6 @@ navs:
     mobile-hidden: true
 
   -
-    href: /fragments/
-    label: 片段
-
-  -
-    href: /links/
-    label: 链接
-    mobile-hidden: true
-
-  -
     href: /about/
     label: 关于
 

@@ -77,18 +77,9 @@ navs:
     label: 分类
 
   -
-    href: /archives/
-    label: 归档
-    mobile-hidden: true
-
-  -
     href: /open-source/
     label: 开源
     mobile-hidden: true
-
-  -
-    href: /about/
-    label: 关于
 
 # ---------------- #
 #       RSS        #
@@ -133,9 +124,9 @@ plugins:
     - jemoji
 #     - jekyll-mentions
 collections:
-    algorithm:
+    note:
         output: true
-        permalink: /algorithm/:path/
+        permalink: /note/:path/
 
 
 # ---------------- #

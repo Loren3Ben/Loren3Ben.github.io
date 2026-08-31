@@ -75,17 +75,23 @@ Fork 本项目之后，还需要做一些事情才能让你的页面「正确」
 ### 目录约定
 
 ```
-_posts/            已发布的文章（按 分类/子主题 分目录）
-  ├── _template.md 写新文章的模板（下划线开头，不会被当作文章渲染）
-  └── <分类>/      按主题归档，如 algorithm/VLA、pmp
-assets/resources/  参考资料归档（电子书、面试题、手册等 PDF/docx）
-images/posts/      文章配图，按 分类/ 命名的子目录存放
-_data/             skills.yml、social.yml 等结构化数据（关于页/侧栏）
+Note/               笔记根目录（所有 .md / .drawio / .xmind 都放这里）
+  ├── AI/VLA/       具身智能 VLA 系列
+  ├── Develop_Common/ 通用开发工具（Docker、Github 等）
+  │   └── template.md  写新笔记的模板
+  └── PMP/          信息系统项目管理师笔记 + xmind
+assets/resources/   参考资料归档（电子书、面试题、手册等 PDF/docx）
+assets/images/screenshots/  笔记配图（按笔记分目录存放）
+images/posts/       旧文章配图（按分类命名）
+_data/             skills.yml、social.yml 等结构化数据（首页/侧栏）
 _includes/         页面片段（header、footer、侧边栏等）
-_layouts/          布局模板（post、page、default、mindmap 等）
-pages/             顶层页面（about、categories、archives、links、open-source）
-_config.yml        站点主配置（标题、URL、导航、评论、搜索等）
+_layouts/          布局模板（post、page、default、categories 等）
+pages/             顶层页面（categories、links、open-source、404）
+index.html         首页（个人简介）
+_config.yml        站点主配置（含 note collection 注册）
 ```
+
+> **笔记放在 `Note/` 下，按 `主题/子主题/` 分文件夹**。每个 `.md` 文件的 front matter 里 `categories: [主题, 子主题]` 要与文件夹结构对应，这样分类页的树视图才能正确归类。
 
 ### 本地预览
 
@@ -110,12 +116,13 @@ bundle exec jekyll serve --livereload
 
 如果遇到 `webrick` 报错，确认 `Gemfile` 里已包含 `gem "webrick"`（本仓库已包含）。
 
-### 写一篇新文章
+### 写一篇新笔记
 
-1. 复制模板：`cp _posts/_template.md "_posts/$(date +%Y-%m-%d)-<分类>-<标题>.md"`（命名规范为 `YYYY-MM-DD-标题.md`，Jekyll 会据此解析日期与 URL）。
-2. 编辑 front matter（`title` / `categories` / `description` / `keywords`），正文使用 Markdown。
-3. 配图放至 `images/posts/<分类>/`，在正文中以 `/images/posts/<分类>/xxx.png` 绝对路径引用。
-4. 本地预览确认无误后提交，推送即自动部署。
+1. 在 `Note/` 下按主题建文件夹（如 `Note/新主题/子主题/`），把笔记 `.md` 放进去。
+2. 复制模板：`cp Note/Develop_Common/template.md "Note/<主题>/<子主题>/$(date +%Y-%m-%d)-<标题>.md"`。
+3. 编辑 front matter，确保 `categories: [<主题>, <子主题>]` 与文件夹结构一致，并填 `date: YYYY-MM-DD`。
+4. 配图放至 `assets/images/screenshots/<笔记名>/`，在正文中以 `/assets/images/screenshots/<笔记名>/xxx.png` 绝对路径引用。
+5. 本地预览确认无误后提交，推送即自动部署。
 
 可选增强组件按需在 front matter 中开启：`mermaid`、`sequence`、`flow`（流程图）、`mathjax`（公式）、`mindmap`/`mindmap2`（思维导图）。
 

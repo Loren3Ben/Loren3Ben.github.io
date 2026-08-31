@@ -50,6 +50,140 @@ comments: false
     font-size: 1.25em;
   }
 }
+
+/* ===== 首页简介卡片 ===== */
+.home .profile-section {
+    max-width: 720px;
+    margin: 40px auto 10px;
+    padding: 36px 40px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.08);
+}
+.home .profile-head {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin-bottom: 22px;
+}
+.home .profile-avatar {
+    width: 76px;
+    height: 76px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4183c4, #6db3f2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 32px;
+    font-weight: 700;
+}
+.home .profile-title h1 {
+    margin: 0 0 4px;
+    font-size: 28px;
+    color: #24292e;
+}
+.home .profile-title p {
+    margin: 0;
+    color: #6a737d;
+    font-size: 15px;
+}
+.home .profile-bio {
+    color: #555;
+    font-size: 15px;
+    line-height: 1.9;
+    margin-bottom: 22px;
+}
+.home .profile-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 26px;
+}
+.home .profile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    border-radius: 20px;
+    background: #f6f8fa;
+    color: #24292e;
+    text-decoration: none;
+    font-size: 14px;
+    transition: background .15s ease;
+}
+.home .profile-link:hover {
+    background: #eef4fb;
+    color: #4183c4;
+    text-decoration: none;
+}
+.home .profile-skills {
+    border-top: 1px solid #f1f1f1;
+    padding-top: 20px;
+}
+.home .profile-skill-group {
+    margin-bottom: 14px;
+}
+.home .profile-skill-group h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #999;
+    font-weight: 600;
+}
+.home .profile-skill-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.home .profile-skill-tag {
+    padding: 4px 12px;
+    border: 1px solid #e1e4e8;
+    border-radius: 14px;
+    font-size: 13px;
+    color: #4183c4;
+    background: #fff;
+}
+.home .profile-entry {
+    display: flex;
+    gap: 16px;
+    margin-top: 28px;
+}
+.home .profile-entry-card {
+    flex: 1;
+    display: block;
+    padding: 20px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #4183c4 0%, #6db3f2 100%);
+    color: #fff;
+    text-decoration: none;
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.home .profile-entry-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(65,131,196,.3);
+    text-decoration: none;
+}
+.home .profile-entry-card .entry-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: block;
+}
+.home .profile-entry-card h3 {
+    margin: 0 0 4px;
+    font-size: 17px;
+    color: #fff;
+}
+.home .profile-entry-card p {
+    margin: 0;
+    font-size: 13px;
+    color: rgba(255,255,255,.85);
+}
+@media (max-width: 50em) {
+    .home .profile-section { padding: 24px 20px; margin: 20px 10px; }
+    .home .profile-head { flex-direction: column; text-align: center; }
+    .home .profile-entry { flex-direction: column; }
+}
 </style>
 
 {% assign assets_base_url = site.url %}
@@ -93,86 +227,54 @@ comments: false
 <!-- /.banner -->
 <section class="container content">
     <div class="columns">
-        <div class="column two-thirds" >
-            <!-- 首页：简易父/子文件夹树 -->
-            <h2 style="margin-bottom:4px;">📂 知识库</h2>
-            <p style="color:#999;font-size:14px;margin-top:0;margin-bottom:18px;">点击文件夹展开/收起子分类，点击文章标题直达正文。</p>
-
-            <ul class="tree-root">
-              {% assign sorted_categories = site.categories | sort %}
-              {% for category in sorted_categories %}
-              <li class="tree-folder">
-                <div class="tree-folder-head" onclick="this.parentElement.classList.toggle('collapsed')">
-                  <span class="tree-toggle" aria-hidden="true">▾</span>
-                  <span class="octicon octicon-file-directory tree-folder-icon"></span>
-                  <span class="tree-folder-name">{{ category[0] }}</span>
-                  <span class="tree-folder-count">{{ category[1].size }}</span>
+        <div class="column two-thirds">
+            <div class="profile-section">
+                <div class="profile-head">
+                    <div class="profile-avatar">L</div>
+                    <div class="profile-title">
+                        <h1>{{ site.author }}</h1>
+                        <p>{{ site.description }}</p>
+                    </div>
                 </div>
 
-                <ul class="tree-children">
-                  <!-- 收集子分类 -->
-                  {% assign subcategories = "" %}
-                  {% for post in category[1] %}
-                    {% if post.categories.size > 1 %}
-                      {% assign subcat = post.categories[1] %}
-                      {% unless subcategories contains subcat %}
-                        {% assign subcategories = subcategories | append: "," | append: subcat %}
-                      {% endunless %}
-                    {% endif %}
-                  {% endfor %}
+                <div class="profile-bio">
+                    具身智能与机器人方向开发者，目前居于杭州。本站记录在机器人、具身智能、项目管理等领域的学习笔记与实践心得，权当自用归档，亦欢迎同行交流。
+                </div>
 
-                  {% if subcategories != "" %}
-                    <!-- 有子分类：渲染子文件夹 -->
-                    {% assign subcats_array = subcategories | remove_first: "," | split: "," %}
-                    {% for subcat in subcats_array %}
-                      {% if subcat != "" %}
-                      <li class="tree-subfolder">
-                        <div class="tree-subfolder-head" onclick="this.parentElement.classList.toggle('collapsed')">
-                          <span class="tree-toggle sub" aria-hidden="true">▾</span>
-                          <span class="octicon octicon-file-directory tree-subfolder-icon"></span>
-                          <span class="tree-subfolder-name">{{ subcat }}</span>
-                          {% assign sub_count = 0 %}
-                          {% for post in category[1] %}
-                            {% if post.categories[1] == subcat %}{% assign sub_count = sub_count | plus: 1 %}{% endif %}
-                          {% endfor %}
-                          <span class="tree-subfolder-count">{{ sub_count }}</span>
+                <div class="profile-links">
+                    {% for website in site.data.social %}
+                    <a class="profile-link" href="{{ website.url }}" target="_blank">
+                        <span class="octicon octicon-mark-github"></span> {{ website.sitename }} · {{ website.name }}
+                    </a>
+                    {% endfor %}
+                </div>
+
+                <div class="profile-skills">
+                    {% for skill in site.data.skills %}
+                    <div class="profile-skill-group">
+                        <h3>{{ skill.name }}</h3>
+                        <div class="profile-skill-tags">
+                            {% for keyword in skill.keywords %}
+                            <span class="profile-skill-tag">{{ keyword }}</span>
+                            {% endfor %}
                         </div>
-                        <ul class="tree-leaves">
-                          {% assign sub_posts = category[1] | sort: 'date' | reverse %}
-                          {% for post in sub_posts %}
-                            {% if post.categories[1] == subcat %}
-                            <li class="tree-leaf">
-                              <a href="{{ site.url }}{{ post.url }}">
-                                <span class="tree-leaf-date">{{ post.date | date: "%m-%d" }}</span>
-                                <span class="tree-leaf-title">{{ post.title }}</span>
-                              </a>
-                            </li>
-                            {% endif %}
-                          {% endfor %}
-                        </ul>
-                      </li>
-                      {% endif %}
+                    </div>
                     {% endfor %}
-                  {% else %}
-                    <!-- 无子分类：直接列文章 -->
-                    {% assign direct_posts = category[1] | sort: 'date' | reverse %}
-                    {% for post in direct_posts %}
-                    <li class="tree-leaf">
-                      <a href="{{ site.url }}{{ post.url }}">
-                        <span class="tree-leaf-date">{{ post.date | date: "%m-%d" }}</span>
-                        <span class="tree-leaf-title">{{ post.title }}</span>
-                      </a>
-                    </li>
-                    {% endfor %}
-                  {% endif %}
-                </ul>
-              </li>
-              {% endfor %}
+                </div>
 
-              {% if site.categories.size == 0 %}
-              <li class="folder-empty">还没有内容，先去 _posts 里写一篇文章吧。</li>
-              {% endif %}
-            </ul>
+                <div class="profile-entry">
+                    <a class="profile-entry-card" href="{{ site.url }}/categories/">
+                        <span class="entry-icon">📂</span>
+                        <h3>知识库</h3>
+                        <p>按文件夹归类的全部笔记</p>
+                    </a>
+                    <a class="profile-entry-card" href="{{ site.url }}/open-source/">
+                        <span class="entry-icon">💻</span>
+                        <h3>开源</h3>
+                        <p>我的开源项目与贡献</p>
+                    </a>
+                </div>
+            </div>
         </div>
         <div class="column one-third">
             {% include sidebar-search.html %}

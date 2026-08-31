@@ -57,11 +57,95 @@ Fork 本项目之后，还需要做一些事情才能让你的页面「正确」
 
    skills.yml 和 social.yml 里内容的含义可以参考：[_data 目录下的 yml 文件内容含义](https://mazhuang.org/2020/05/03/blog-template-qna/#_data-%E7%9B%AE%E5%BD%95%E4%B8%8B%E7%9A%84-yml-%E6%96%87%E4%BB%B6%E5%86%85%E5%AE%B9%E5%90%AB%E4%B9%89)。
 
-## 使用文档
+## 如何使用
 
-- [本博客模板常见问题 Q & A](https://mazhuang.org/2020/05/03/blog-template-qna/)。
+本博客基于 [Jekyll](https://jekyllrb.com/) 静态站点生成器，托管于 [GitHub Pages](https://docs.github.com/pages)，构建由根目录 `.github/workflows/jekyll.yml` 自动完成。下面是完整的使用框架与操作步骤。
 
-- 在本地预览博客效果可以参考 [Setting up your Pages site locally with Jekyll][2]。
+### 技术栈一览
+
+| 组件 | 版本/说明 |
+| --- | --- |
+| Ruby | 3.1（CI 已锁定，本地建议保持一致） |
+| Jekyll | 随 `github-pages` gem 发布，与 GitHub Pages 生产环境一致 |
+| 依赖管理 | Bundler（`Gemfile` + `Gemfile.lock`） |
+| Markdown 渲染 | kramdown（GFM 输入） + rouge 高亮 |
+| 评论组件 | giscus（默认，可切换 disqus/gitalk/utterances/beaudar） |
+| 部署 | GitHub Actions → GitHub Pages |
+
+### 目录约定
+
+```
+_posts/            已发布的文章（按 分类/子主题 分目录）
+  ├── _template.md 写新文章的模板（下划线开头，不会被当作文章渲染）
+  └── <分类>/      按主题归档，如 algorithm/VLA、pmp
+assets/resources/  参考资料归档（电子书、面试题、手册等 PDF/docx）
+images/posts/      文章配图，按 分类/ 命名的子目录存放
+_data/             skills.yml、social.yml 等结构化数据（关于页/侧栏）
+_includes/         页面片段（header、footer、侧边栏等）
+_layouts/          布局模板（post、page、default、mindmap 等）
+pages/             顶层页面（about、categories、archives、links、open-source）
+_config.yml        站点主配置（标题、URL、导航、评论、搜索等）
+```
+
+### 本地预览
+
+> 需要 Ruby 3.1。Windows 推荐用 [RubyInstaller](https://rubyinstaller.org/) 安装，并勾选添加到 PATH。
+
+```bash
+# 1. 进入项目根目录
+cd myNote
+
+# 2. 安装 Bundler（仅首次需要）
+gem install bundler
+
+# 3. 安装依赖（读取 Gemfile）
+bundle install
+
+# 4. 启动本地预览服务（默认 http://127.0.0.1:4000）
+bundle exec jekyll serve
+
+# 想让修改自动刷新，加 --livereload
+bundle exec jekyll serve --livereload
+```
+
+如果遇到 `webrick` 报错，确认 `Gemfile` 里已包含 `gem "webrick"`（本仓库已包含）。
+
+### 写一篇新文章
+
+1. 复制模板：`cp _posts/_template.md "_posts/$(date +%Y-%m-%d)-<分类>-<标题>.md"`（命名规范为 `YYYY-MM-DD-标题.md`，Jekyll 会据此解析日期与 URL）。
+2. 编辑 front matter（`title` / `categories` / `description` / `keywords`），正文使用 Markdown。
+3. 配图放至 `images/posts/<分类>/`，在正文中以 `/images/posts/<分类>/xxx.png` 绝对路径引用。
+4. 本地预览确认无误后提交，推送即自动部署。
+
+可选增强组件按需在 front matter 中开启：`mermaid`、`sequence`、`flow`（流程图）、`mathjax`（公式）、`mindmap`/`mindmap2`（思维导图）。
+
+### 部署到 GitHub Pages
+
+仓库已配置 `.github/workflows/jekyll.yml`，**推送到 `master` 分支即自动构建并发布**，无需手动操作。部署流程：
+
+1. 代码推送到 `master` 分支。
+2. GitHub Actions 自动运行 `bundle install` + `jekyll build`。
+3. 产物上传到 Pages，几分钟内站点更新。
+
+前提：仓库 **Settings → Pages → Source** 设为 **GitHub Actions**（而非 branch）。
+
+### 常用配置修改（`_config.yml`）
+
+| 想改什么 | 改哪里 |
+| --- | --- |
+| 站点标题/副标题/描述 | `title` / `subtitle` / `description` |
+| 站点 URL | `url`（当前为 `https://Loren3Ben.github.io`） |
+| 导航栏菜单 | `navs` 列表 |
+| 评论系统 | `comments_provider`（及对应 provider 的配置块） |
+| 字数统计/二维码/分享 | `components` 下各项 `enabled` |
+| 代码高亮主题 | `highlight_theme`（主题列表见 [rouge-themes](https://github.com/mzlogin/rouge-themes)） |
+
+### 参考文档
+
+- [本博客模板常见问题 Q & A](https://mazhuang.org/2020/05/03/blog-template-qna/)
+- [Setting up your Pages site locally with Jekyll][2]
+- [Jekyll 官方文档](https://jekyllrb.com/docs/)
+- [GitHub Pages 文档](https://docs.github.com/pages)
 
 ## 经验与思考
 

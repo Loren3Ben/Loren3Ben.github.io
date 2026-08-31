@@ -8,7 +8,9 @@ menu: 关于Loren
 permalink: /about/
 ---
 
-巴拉巴拉巴拉巴拉
+Loren，具身智能与机器人方向开发者，目前居于杭州。
+
+本博客用于记录在机器人、具身智能、项目管理等领域的学习笔记与实践心得，权当自用归档，亦欢迎同行交流。
 
 ## 联系
 
@@ -16,8 +18,6 @@ permalink: /about/
 {% for website in site.data.social %}
 <li>{{website.sitename }}：<a href="{{ website.url }}" target="_blank">@{{ website.name }}</a></li>
 {% endfor %}
-{% if site.url contains 'mazhuang.org' %}
-{% endif %}
 </ul>
 
 

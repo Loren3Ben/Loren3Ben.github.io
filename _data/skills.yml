@@ -1,19 +1,27 @@
-- name: Software Engineer Keywords
+- name: 机器人与具身智能
   keywords:
-      - Java
-      - C++
+      - ROS / ROS2
+      - VLA
+      - Sim2Real
+      - 运动控制
+      - 多模态融合
+
+- name: 编程语言
+  keywords:
       - Python
-      - Design Patterns
+      - C++
+      - CMake
 
-- name: Mobile Developer Keywords
+- name: 算法与理论
   keywords:
-      - Android
-      - Reverse Engineering
+      - 强化学习
+      - 深度学习
+      - LLM / VLM
+      - PEFT (LoRA)
 
-- name: Windows Developer Keywords
+- name: 工程与工具
   keywords:
-      - Win32 SDK
-      - DuiLib
-      - WTL
-      - COM
-      - WinDbg
+      - Linux
+      - Docker
+      - Git
+      - ZMQ / Protobuf

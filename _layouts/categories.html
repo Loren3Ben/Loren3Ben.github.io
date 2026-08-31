@@ -14,7 +14,18 @@ layout: default
                 <div class="collection-title">
                     <h1 class="collection-header">{{ page.title }}</h1>
                     <div class="collection-info">
-                        <span class="meta-info">共 {{ site.categories.size }} 个分类</span>
+                        {% comment %}统计 note collection 中有 categories 的主分类数{% endcomment %}
+                        {% assign mc_set = "" %}
+                        {% for doc in site.note %}
+                          {% if doc.categories and doc.categories.size > 0 %}
+                            {% assign c = doc.categories[0] %}
+                            {% unless mc_set contains c %}
+                              {% assign mc_set = mc_set | append: "|" | append: c %}
+                            {% endunless %}
+                          {% endif %}
+                        {% endfor %}
+                        {% assign mc_count = mc_set | remove_first: "|" | split: "|" | size %}
+                        <span class="meta-info">共 {{ mc_count }} 个分类</span>
                     </div>
                 </div>
             </div>

@@ -1,37 +1,61 @@
 <h3>Categories Cloud</h3>
-{% assign first = site.categories.first %}
-{% assign max = first[1].size %}
-{% assign min = max %}
-{% for category in site.categories offset:1 %}
-  {% if category[1].size > max %}
-    {% assign max = category[1].size %}
-  {% elsif category[1].size < min %}
-    {% assign min = category[1].size %}
+{% comment %}从 note collection 收集去重后的分类名{% endcomment %}
+{% assign all_cats = "" %}
+{% for doc in site.note %}
+  {% if doc.categories %}
+    {% for c in doc.categories %}
+      {% assign marker = "|" | append: c | append: "|" %}
+      {% unless all_cats contains marker %}
+        {% assign all_cats = all_cats | append: marker %}
+      {% endunless %}
+    {% endfor %}
+  {% endif %}
+{% endfor %}
+{% assign cat_list = all_cats | split: "|" %}
+
+{% assign max = 1 %}
+{% assign min = 999 %}
+{% comment %}先算每个分类的数量，找最大最小{% endcomment %}
+{% assign counts_str = "" %}
+{% for c in cat_list %}
+  {% if c != "" %}
+    {% assign cnt = 0 %}
+    {% for doc in site.note %}
+      {% if doc.categories %}
+        {% for dc in doc.categories %}
+          {% if dc == c %}{% assign cnt = cnt | plus: 1 %}{% endif %}
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+    {% assign counts_str = counts_str | append: c | append: ":" | append: cnt | append: "," %}
+    {% if cnt > max %}{% assign max = cnt %}{% endif %}
+    {% if cnt < min %}{% assign min = cnt %}{% endif %}
   {% endif %}
 {% endfor %}
 {% assign diff = max | minus: min %}
+{% if diff == 0 %}{% assign diff = 1 %}{% endif %}
 
-{% if diff == 0 %}
-  {% assign diff = 1 %}
-{% endif %}
-
-{% for category in site.categories %}
-  {% assign temp = category[1].size | minus: min | times: 36 | divided_by: diff %}
-  {% assign base = temp | divided_by: 4 %}
-  {% assign remain = temp | modulo: 4 %}
-  {% if remain == 0 %}
-    {% assign size = base | plus: 9 %}
-  {% elsif remain == 1 or remain == 2 %}
-    {% assign size = base | plus: 9 | append: '.5' %}
-  {% else %}
-    {% assign size = base | plus: 10 %}
+{% assign count_pairs = counts_str | split: "," %}
+{% for pair in count_pairs %}
+  {% if pair != "" %}
+    {% assign kv = pair | split: ":" %}
+    {% assign cname = kv[0] %}
+    {% assign cnt = kv[1] | plus: 0 %}
+    {% assign temp = cnt | minus: min | times: 36 | divided_by: diff %}
+    {% assign base = temp | divided_by: 4 %}
+    {% assign remain = temp | modulo: 4 %}
+    {% if remain == 0 %}
+      {% assign size = base | plus: 9 %}
+    {% elsif remain == 1 or remain == 2 %}
+      {% assign size = base | plus: 9 | append: '.5' %}
+    {% else %}
+      {% assign size = base | plus: 10 %}
+    {% endif %}
+    {% if remain == 0 or remain == 1 %}
+      {% assign color = 9 | minus: base %}
+    {% else %}
+      {% assign color = 8 | minus: base %}
+    {% endif %}
+    <a href="{{ site.url }}/categories/#{{ cname }}" style="font-size: {{ size }}pt; color: #{{ color }}{{ color }}{{ color }};">{{ cname }}</a>
   {% endif %}
-  {% if remain == 0 or remain == 1 %}
-    {% assign color = 9 | minus: base %}
-  {% else %}
-    {% assign color = 8 | minus: base %}
-  {% endif %}
-  <a href="{{ site.url }}/categories/#{{ category[0] }}" style="font-size: {{ size }}pt; color: #{{ color }}{{ color }}{{ color }};">{{ category | first }}</a>
 {% endfor %}
-
-<!-- ref http://liberize.github.io/tech/jekyll-tag-cloud.html -->

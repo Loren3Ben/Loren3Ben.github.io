@@ -1,66 +1,62 @@
-
-<!-- <h3>Blog Categories</h3>
-<div id="blog-categories">
-  <ul class="list-group">
-    {% assign sorted_categories = site.categories | sort %}
-    {% for category in sorted_categories %}
-    <li class="list-group-item">
-    <a href="#{{ category[0] }}">{{ category | first }}</a>
-    <span class="badge">{{ category[1].size }}</span>
-    </li>
-    {% endfor %}
-  </ul>
-</div>
-
-<script type="text/javascript">
-
-  $(document).ready(function(){
-    $("#blog-categories li").css('text-transform','capitalize')
-  });
-
-</script> -->
-
 <h3>Blog Categories</h3>
 <div id="blog-categories">
   <ul class="list-group">
-    {% assign sorted_categories = site.categories | sort %}
-    {% for category in sorted_categories %}
-    <li class="list-group-item">
-      <a href="#{{ category[0] }}">{{ category | first }}</a>
-      <span class="badge">{{ category[1].size }}</span>
-      
-      <!-- 显示子分类 -->
-      {% assign subcategories = "" %}
-      {% for post in category[1] %}
-        {% if post.categories.size > 1 %}
-          {% assign subcat = post.categories[1] %}
-          {% unless subcategories contains subcat %}
-            {% assign subcategories = subcategories | append: "," | append: subcat %}
-          {% endunless %}
-        {% endif %}
+    {% comment %}从 note collection 收集去重主分类{% endcomment %}
+    {% assign main_cats = "" %}
+    {% for doc in site.note %}
+      {% if doc.categories and doc.categories.size > 0 %}
+        {% assign mc = doc.categories[0] %}
+        {% assign marker = "|" | append: mc | append: "|" %}
+        {% unless main_cats contains marker %}
+          {% assign main_cats = main_cats | append: marker %}
+        {% endunless %}
+      {% endif %}
+    {% endfor %}
+    {% assign main_cats_arr = main_cats | split: "|" | sort %}
+
+    {% for mc in main_cats_arr %}
+      {% if mc != "" %}
+      {% assign mc_count = 0 %}
+      {% for doc in site.note %}
+        {% if doc.categories and doc.categories[0] == mc %}{% assign mc_count = mc_count | plus: 1 %}{% endif %}
       {% endfor %}
-      
-      {% if subcategories != "" %}
-      <ul class="subcategory-list" style="margin-left: 20px; margin-top: 5px;">
-        {% assign subcats_array = subcategories | split: "," %}
-        {% for subcat in subcats_array %}
-          {% if subcat != "" %}
-          <li class="subcategory-item">
-            <a href="/{{ category[0] }}/{{ subcat }}/">{{ subcat }}</a>
-            <!-- 计算子分类下的文章数量 -->
-            {% assign subcat_count = 0 %}
-            {% for post in category[1] %}
-              {% if post.categories.size > 1 and post.categories[1] == subcat %}
-                {% assign subcat_count = subcat_count | plus: 1 %}
-              {% endif %}
-            {% endfor %}
-            <span class="badge">{{ subcat_count }}</span>
-          </li>
+      <li class="list-group-item">
+        <a href="{{ site.url }}/categories/#{{ mc }}">{{ mc }}</a>
+        <span class="badge">{{ mc_count }}</span>
+
+        {% comment %}子分类{% endcomment %}
+        {% assign subcats = "" %}
+        {% for doc in site.note %}
+          {% if doc.categories and doc.categories[0] == mc and doc.categories.size > 1 %}
+            {% assign sc = doc.categories[1] %}
+            {% assign sc_marker = "|" | append: sc | append: "|" %}
+            {% unless subcats contains sc_marker %}
+              {% assign subcats = subcats | append: sc_marker %}
+            {% endunless %}
           {% endif %}
         {% endfor %}
-      </ul>
+        {% assign subcats_arr = subcats | split: "|" | sort %}
+
+        {% if subcats != "" %}
+        <ul class="subcategory-list" style="margin-left: 20px; margin-top: 5px;">
+          {% for sc in subcats_arr %}
+            {% if sc != "" %}
+            {% assign sc_count = 0 %}
+            {% for doc in site.note %}
+              {% if doc.categories and doc.categories.size > 1 and doc.categories[0] == mc and doc.categories[1] == sc %}
+                {% assign sc_count = sc_count | plus: 1 %}
+              {% endif %}
+            {% endfor %}
+            <li class="subcategory-item">
+              <a href="{{ site.url }}/categories/#{{ mc }}">{{ sc }}</a>
+              <span class="badge">{{ sc_count }}</span>
+            </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
       {% endif %}
-    </li>
     {% endfor %}
   </ul>
 </div>
@@ -69,7 +65,7 @@
   $(document).ready(function(){
     $("#blog-categories li").css('text-transform','capitalize');
     $(".subcategory-list").hide();
-    
+
     // 点击主分类时切换子分类显示
     $("#blog-categories > ul > li > a").click(function(e){
       e.preventDefault();

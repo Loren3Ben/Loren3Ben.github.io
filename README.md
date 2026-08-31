@@ -75,14 +75,13 @@ Fork 本项目之后，还需要做一些事情才能让你的页面「正确」
 ### 目录约定
 
 ```
-Note/               笔记根目录（所有 .md / .drawio / .xmind 都放这里）
+_note/              笔记根目录（所有 .md / .drawio / .xmind 都放这里）
   ├── AI/VLA/       具身智能 VLA 系列
   ├── Develop_Common/ 通用开发工具（Docker、Github 等）
   │   └── template.md  写新笔记的模板
   └── PMP/          信息系统项目管理师笔记 + xmind
 assets/resources/   参考资料归档（电子书、面试题、手册等 PDF/docx）
 assets/images/screenshots/  笔记配图（按笔记分目录存放）
-images/posts/       旧文章配图（按分类命名）
 _data/             skills.yml、social.yml 等结构化数据（首页/侧栏）
 _includes/         页面片段（header、footer、侧边栏等）
 _layouts/          布局模板（post、page、default、categories 等）
@@ -91,7 +90,7 @@ index.html         首页（个人简介）
 _config.yml        站点主配置（含 note collection 注册）
 ```
 
-> **笔记放在 `Note/` 下，按 `主题/子主题/` 分文件夹**。每个 `.md` 文件的 front matter 里 `categories: [主题, 子主题]` 要与文件夹结构对应，这样分类页的树视图才能正确归类。
+> **笔记放在 `_note/` 下，按 `主题/子主题/` 分文件夹**（Jekyll collection 约定：目录名加下划线前缀）。每个 `.md` 文件的 front matter 里 `categories: [主题, 子主题]` 要与文件夹结构对应，这样分类页的树视图才能正确归类。
 
 ### 本地预览
 
@@ -118,8 +117,8 @@ bundle exec jekyll serve --livereload
 
 ### 写一篇新笔记
 
-1. 在 `Note/` 下按主题建文件夹（如 `Note/新主题/子主题/`），把笔记 `.md` 放进去。
-2. 复制模板：`cp Note/Develop_Common/template.md "Note/<主题>/<子主题>/$(date +%Y-%m-%d)-<标题>.md"`。
+1. 在 `_note/` 下按主题建文件夹（如 `_note/新主题/子主题/`），把笔记 `.md` 放进去。
+2. 复制模板：`cp _note/Develop_Common/template.md "_note/<主题>/<子主题>/$(date +%Y-%m-%d)-<标题>.md"`。
 3. 编辑 front matter，确保 `categories: [<主题>, <子主题>]` 与文件夹结构一致，并填 `date: YYYY-MM-DD`。
 4. 配图放至 `assets/images/screenshots/<笔记名>/`，在正文中以 `/assets/images/screenshots/<笔记名>/xxx.png` 绝对路径引用。
 5. 本地预览确认无误后提交，推送即自动部署。

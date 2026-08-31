@@ -100,7 +100,7 @@ permalink: /categories/
       {% endfor %}
 
       {% if main_cats_arr.size == 0 %}
-      <li class="folder-empty">还没有内容，先去 Note/ 里写一篇笔记吧。</li>
+      <li class="folder-empty">还没有内容，先去 _note/ 里写一篇笔记吧。</li>
       {% endif %}
     </ul>
 </section>

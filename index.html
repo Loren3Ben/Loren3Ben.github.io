@@ -94,53 +94,78 @@ comments: false
 <section class="container content">
     <div class="columns">
         <div class="column two-thirds" >
-            <!-- 首页：按文件夹/分类展示 -->
+            <!-- 首页：简易父/子文件夹树 -->
             <h2 style="margin-bottom:4px;">📂 知识库</h2>
-            <p style="color:#999;font-size:14px;margin-top:0;margin-bottom:18px;">按文件夹归类的笔记与文章，点击进入对应分类。</p>
-            <ul class="folder-grid">
+            <p style="color:#999;font-size:14px;margin-top:0;margin-bottom:18px;">点击文件夹展开/收起子分类，点击文章标题直达正文。</p>
+
+            <ul class="tree-root">
               {% assign sorted_categories = site.categories | sort %}
               {% for category in sorted_categories %}
-              <li class="folder-card">
-                <div class="folder-card-head">
-                  <a class="folder-card-name" href="{{ site.url }}/categories/#{{ category[0] }}">
-                    <span class="octicon octicon-file-directory folder-icon"></span>
-                    <span>{{ category[0] }}</span>
-                  </a>
-                  <span class="folder-count">{{ category[1].size }} 篇</span>
+              <li class="tree-folder">
+                <div class="tree-folder-head" onclick="this.parentElement.classList.toggle('collapsed')">
+                  <span class="tree-toggle" aria-hidden="true">▾</span>
+                  <span class="octicon octicon-file-directory tree-folder-icon"></span>
+                  <span class="tree-folder-name">{{ category[0] }}</span>
+                  <span class="tree-folder-count">{{ category[1].size }}</span>
                 </div>
 
-                <!-- 子分类 -->
-                {% assign subcategories = "" %}
-                {% for post in category[1] %}
-                  {% if post.categories.size > 1 %}
-                    {% assign subcat = post.categories[1] %}
-                    {% unless subcategories contains subcat %}
-                      {% assign subcategories = subcategories | append: "," | append: subcat %}
-                    {% endunless %}
-                  {% endif %}
-                {% endfor %}
-
-                {% if subcategories != "" %}
-                <div class="folder-subcats">
-                  {% assign subcats_array = subcategories | remove_first: "," | split: "," %}
-                  {% for subcat in subcats_array %}
-                    {% if subcat != "" %}
-                    <a class="folder-subcat" href="{{ site.url }}/categories/#{{ category[0] }}">{{ subcat }}</a>
+                <ul class="tree-children">
+                  <!-- 收集子分类 -->
+                  {% assign subcategories = "" %}
+                  {% for post in category[1] %}
+                    {% if post.categories.size > 1 %}
+                      {% assign subcat = post.categories[1] %}
+                      {% unless subcategories contains subcat %}
+                        {% assign subcategories = subcategories | append: "," | append: subcat %}
+                      {% endunless %}
                     {% endif %}
                   {% endfor %}
-                </div>
-                {% endif %}
 
-                <!-- 最近文章预览 -->
-                <div class="folder-recent">
-                  <div class="folder-recent-title">最近更新</div>
-                  {% assign recent_posts = category[1] | sort: 'date' | reverse | slice: 0, 3 %}
-                  {% for post in recent_posts %}
-                  <a class="folder-recent-item" href="{{ site.url }}{{ post.url }}" title="{{ post.title }}">
-                    <span class="folder-recent-date">{{ post.date | date: "%m-%d" }}</span>{{ post.title }}
-                  </a>
-                  {% endfor %}
-                </div>
+                  {% if subcategories != "" %}
+                    <!-- 有子分类：渲染子文件夹 -->
+                    {% assign subcats_array = subcategories | remove_first: "," | split: "," %}
+                    {% for subcat in subcats_array %}
+                      {% if subcat != "" %}
+                      <li class="tree-subfolder">
+                        <div class="tree-subfolder-head" onclick="this.parentElement.classList.toggle('collapsed')">
+                          <span class="tree-toggle sub" aria-hidden="true">▾</span>
+                          <span class="octicon octicon-file-directory tree-subfolder-icon"></span>
+                          <span class="tree-subfolder-name">{{ subcat }}</span>
+                          {% assign sub_count = 0 %}
+                          {% for post in category[1] %}
+                            {% if post.categories[1] == subcat %}{% assign sub_count = sub_count | plus: 1 %}{% endif %}
+                          {% endfor %}
+                          <span class="tree-subfolder-count">{{ sub_count }}</span>
+                        </div>
+                        <ul class="tree-leaves">
+                          {% assign sub_posts = category[1] | sort: 'date' | reverse %}
+                          {% for post in sub_posts %}
+                            {% if post.categories[1] == subcat %}
+                            <li class="tree-leaf">
+                              <a href="{{ site.url }}{{ post.url }}">
+                                <span class="tree-leaf-date">{{ post.date | date: "%m-%d" }}</span>
+                                <span class="tree-leaf-title">{{ post.title }}</span>
+                              </a>
+                            </li>
+                            {% endif %}
+                          {% endfor %}
+                        </ul>
+                      </li>
+                      {% endif %}
+                    {% endfor %}
+                  {% else %}
+                    <!-- 无子分类：直接列文章 -->
+                    {% assign direct_posts = category[1] | sort: 'date' | reverse %}
+                    {% for post in direct_posts %}
+                    <li class="tree-leaf">
+                      <a href="{{ site.url }}{{ post.url }}">
+                        <span class="tree-leaf-date">{{ post.date | date: "%m-%d" }}</span>
+                        <span class="tree-leaf-title">{{ post.title }}</span>
+                      </a>
+                    </li>
+                    {% endfor %}
+                  {% endif %}
+                </ul>
               </li>
               {% endfor %}
 
